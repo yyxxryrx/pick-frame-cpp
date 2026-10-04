@@ -1,2 +1,6 @@
 /_deps
 /.idea
+/.vs
+/out
+/cmake-build-*/
+/.cache

@@ -7,16 +7,11 @@
 #include "video_info_reader.h"
 #include "../types/position.h"
 #include <expected>
-#include "../types/ffmpeg.h"
+#include "../types/av.h"
 
 extern "C" {
-#include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
 }
-
-using FramePtr = FFPtr1<AVFrame, av_frame_free>;
-using FormatContextPtr = FFPtr2<AVFormatContext, avformat_free_context>;
-using CodecContextPtr = FFPtr1<AVCodecContext, avcodec_free_context>;
 
 struct VideoFrame {
     uint32_t index;
@@ -70,7 +65,7 @@ struct VideoReaderIterator {
     using difference_type = int;
     using iterator_concept = std::input_iterator_tag;
 
-    VideoReaderIterator(std::unique_ptr<VideoFrameReader> reader, const Position &from);
+    VideoReaderIterator(VideoFrameReader& reader, const Position &from);
 
     auto operator*() -> value_type;
 
@@ -81,9 +76,10 @@ struct VideoReaderIterator {
     friend bool operator==(const VideoReaderIterator &it, const VideoReaderSentinel &sent);
 
 private:
+    std::expected<FramePtr, std::string> frame;
     uint32_t frames = 0;
     bool eof = false;
-    std::unique_ptr<VideoFrameReader> reader;
+    VideoFrameReader* reader;
 };
 
 struct VideoReaderRange {
@@ -97,7 +93,7 @@ struct VideoReaderRange {
 
     auto begin(this const VideoReaderRange &self) -> VideoReaderIterator;
 
-    auto end() const -> VideoReaderSentinel;
+    [[nodiscard]] auto end() const -> VideoReaderSentinel;
 };
 
 struct VideoReader {

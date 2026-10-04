@@ -68,7 +68,7 @@ auto VideoFrameReader::read_frame(this VideoFrameReader &self) -> std::expected<
         if (pkt->stream_index == index) {
             if (avcodec_send_packet(self.codecCtx.get(), pkt) < 0) continue;
             while (avcodec_receive_frame(self.codecCtx.get(), self.frame.get()) == 0) {
-                auto ret =  std::move(self.frame);
+                auto ret = std::move(self.frame);
                 self.frame.reset(av_frame_alloc());
                 av_packet_unref(pkt);
                 return ret;
@@ -103,8 +103,8 @@ auto VideoFrameReader::open(this VideoFrameReader &self, const std::string &path
     return {};
 }
 
-VideoReaderIterator::VideoReaderIterator(std::unique_ptr<VideoFrameReader> reader, const Position &from) : reader(
-    std::move(reader)) {
+VideoReaderIterator::VideoReaderIterator(VideoFrameReader &reader, const Position &from) : reader(
+    &reader) {
     if (!this->reader->goto_position(from)) {
         this->eof = true;
         return;
@@ -115,28 +115,32 @@ VideoReaderIterator::VideoReaderIterator(std::unique_ptr<VideoFrameReader> reade
         return;
     }
 
-    const auto frame = from.to_frame(this->reader->info->fps);
-    if (!frame) {
+    const auto frame_index = from.to_frame(this->reader->info->fps);
+    if (!frame_index) {
         this->eof = true;
         return;
     }
-    this->frames = *frame;
+    this->frames = *frame_index;
+    this->frame = std::move(this->reader->read_frame());
 }
 
 VideoReaderIterator::value_type VideoReaderIterator::operator*() {
-    this->frames++;
-    auto frame = this->reader->read_frame();
-    return std::move(frame).transform([this](FramePtr f) {
-        return VideoFrame(std::move(f), this->frames);
+    return std::move(this->frame).transform([this](FramePtr f) {
+        return VideoFrame{std::move(f), this->frames};
     });
 }
 
 auto VideoReaderIterator::operator++() -> VideoReaderIterator & {
+    this->frames++;
+    this->frame = std::move(this->reader->read_frame());
     return *this;
 }
 
 auto VideoReaderIterator::operator++(int) -> VideoReaderIterator {
-    return std::move(*this);
+    auto tmp = std::move(*this);
+    this->frames++;
+    this->frame = std::move(this->reader->read_frame());
+    return tmp;
 }
 
 constexpr auto VideoReaderSentinel::get_limit(this const VideoReaderSentinel &self) -> uint32_t {
@@ -144,7 +148,7 @@ constexpr auto VideoReaderSentinel::get_limit(this const VideoReaderSentinel &se
 }
 
 auto VideoReaderRange::begin(this const VideoReaderRange &self) -> VideoReaderIterator {
-    return {std::unique_ptr<VideoFrameReader>(self.reader), self.from};
+    return {*self.reader, self.from};
 }
 
 auto VideoReaderRange::end() const -> VideoReaderSentinel {
